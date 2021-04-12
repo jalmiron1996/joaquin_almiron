@@ -1,8 +1,7 @@
-echo "# joaquin_almiron" >> README.md
-git init
-git add README.md
-git commit -m "first commit"
-git branch -M main
-git remote add origin https://github.com/jalmiron1996/joaquin_almiron.git
-git push -u origin main
-print "helloworld"
+Hey it is me @jalmiron1996
+
+Welcome to my profile
+
+I'm a 25 yeards old engineer, interested in data analytics and data science.
+
+Here you will be able to take a look at my recents programs as I am taking a Master's degree in Data Science and Business Analytics, where there is a ton to be learned.
