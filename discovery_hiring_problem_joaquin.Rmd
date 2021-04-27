@@ -1,0 +1,363 @@
+---
+title: "Discovery Hiring Problem"
+author: "Joaquin_Almiron"
+date: "4/22/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,  warning=FALSE, message = FALSE)
+```
+
+### Introduction - Problem
+
+1. What is the daily overall clickthrough rate? How does it vary between the groups?
+2. Which results do people tend to try first? How does it change day-to-day?
+3. What is the daily overall zero results rate? How does it vary between the groups?
+4. Let *session length* be approximately the time between the first event and the last event in a session. Choose a variable from the dataset and describe its relationship to session length. Visualize the relationship.
+5. Summarize your findings in an *executive summary*.
+
+### Loading Packages
+
+First, main packages to be used are loaded,ggthemes is an optional one that is my personal preference for meaningful visualizations.
+
+```{r loading packages}
+library(tidyverse)
+library(ggthemes)
+library(kableExtra)
+options(knitr.table.format = "html") 
+```
+
+### Import Data
+
+The first step is to import the CSV, that in this case is separated by ';'
+
+Then, it is important to visualize the first rows of the data frame to get familiar with it, as well as a summary of each variable.
+
+```{r}
+events <- read.csv2("events_log_joaquin.csv", header = T, stringsAsFactors = F)
+
+events %>% 
+  head() %>% 
+  kbl() %>% 
+  kable_paper("striped", full_width = F, position = "left", font_size = 12)
+  
+summary(events)
+```
+
+### Data Manipulation
+
+After that, a new variable is created to transform the timestamp format (which was previously renamed in excel time_new just for clarification in R) into date_time
+With the date_time, the variable date is created to help summarize the data.
+
+```{r}
+events$time <- as.POSIXct(strptime(x = events$time_new, format = "%Y%m%d%H%M%S"))
+events$date <- lubridate::date(events$time)
+
+```
+
+The next step is to identify the 'visitPage' and 'searchResultPage' actions as these two are the key metrics for the daily clickthrough rate. 
+
+
+```{r}
+
+events$clicks[events$action=='visitPage'] <- 1
+events$clicks[events$action!='visitPage'] <- 0
+events$searches[events$action=='searchResultPage'] <- 1
+events$searches[events$action!='searchResultPage'] <- 0
+
+events %>% 
+  head() %>% 
+  kbl() %>% 
+  kable_paper("striped", full_width = F, position = "left", font_size = 11)
+
+```
+
+### Question 1
+
+##### **What is the daily overall clickthrough rate? How does it vary between the groups?**
+
+To calculate the clickthrough rate (proportion of search sessions where the user clicked on one of the results displayed) it is important to note that in the same search session, the user can do multiple searches, so multiple search events are recorded associated with the same session_id.
+
+In the next table 'sessions' this is addressed and for each session_id we will have the number of clicks and number of searches.
+
+```{r}
+sessions <- events %>%
+  group_by(session_id, date, group) %>% 
+  summarize(n_clicks = sum(clicks==1),
+            n_searches = sum(searches==1))
+
+sessions %>% 
+   head() %>% 
+  kbl() %>% 
+  kable_paper("striped", full_width = F, position = "left", font_size = 13)
+```
+
+After that, we can calculate the daily clickthrough rate (CTR %) as the number of clicks divided by the number of searches one user does.
+
+This, can be grouped per day and per group to show the difference between each category.
+
+At first glance we can notice by looking at the head of the table that group a has a much higher CTR % than group b, an this tendency is true for every day of data.
+
+```{r}
+daily_CTR <- sessions %>%
+  group_by(date, group) %>%
+  summarise(daily_ctr = sum(n_clicks)/sum(n_searches))
+
+daily_CTR %>% 
+  head() %>% 
+  kbl() %>% 
+  kable_paper("striped", full_width = F, position = "left", font_size = 13)
+```
+
+We can plot these results by day and by group to have a better view of the situation and how it evolves over time.
+
+```{r}
+daily_CTR %>% 
+  ggplot(aes(x = date, y = daily_ctr, color=group,)) +
+  geom_point() +
+  geom_line() +
+  labs(title='Daily Clickthrough Rate', x = "Day",
+       y = "Clickthrough Rate",
+       color="Group") +
+  theme_economist() + scale_color_economist() +
+  theme(legend.position = "right")
+
+```
+
+```{r}
+daily_CTR %>% 
+  ggplot(aes(x = date, y = daily_ctr, color=group,)) +
+  geom_point() +
+  geom_smooth(method=lm)+
+  labs(title='Daily Clickthrough Rate', x = "Day",
+       y = "Clickthrough Rate",
+       color="Group") +
+  theme_economist() + scale_color_economist() +
+  theme(legend.position = "right")
+```
+
+**The conclusion is that group a has a CTR % above 0.4 % for the first 3 days, with a maximum of 0.47 being recorded in the first day of data, and then it drops to be constant at 0.3 %.**
+
+**For group b, on the contrary, it starts at a minimum of 0.126 % and it start growing for the first 3 days. After that, it is stable at around 0.18 % for the rest of days.**
+
+**With this, it can be concluded that, overall, group a has a higher CTR % by more than 0.1 %.**
+
+
+### Question 2
+
+##### **Which results do people tend to try first? How does it change day-to-day?**
+
+To identify which results people try or click first, we need to first filter the actions that 'VisitPage'.
+
+After that, we drop all the zero results searches and the data is ready for plotting.
+
+```{r}
+sessions_2 <- events %>%
+  filter(clicks >= 1 & result_position != 'NA' & result_position > 0)
+
+sessions_2 %>% 
+  head() %>% 
+  kbl() %>% 
+  kable_paper("striped", full_width = F, position = "left", font_size = 11)
+```
+
+One, key metric here is the mean of the position clicked, but the downside to these is that this mean can be biased up or down depending on outliers.
+
+For group a: most of days it is around position 3, however, in day 1 and 4, there seems to be a much higher mean almost around position 8.
+
+For group b: it is stable around position 2 for every day.
+
+```{r}
+aux1 <- sessions_2 %>% 
+  group_by(date, group) %>%
+  summarise(mean_result = mean(result_position),
+            med_result = median(result_position))
+
+aux1 %>% 
+  ggplot(aes(x = date, y = mean_result)) +
+  geom_col(color='blue') +
+  facet_grid(~group) +
+  labs(x = "Day",
+       y = "Mean First Click",
+       title="Mean of First Clicks By Day and Group") +
+  theme_economist()+
+  ylim(0, 10)
+
+```
+
+Noting that nothing can be concluded from the mean position, since the results can be biased with a higher position in some searches, one better metric seems to be the median.
+
+However, again, not much can be concluded since the median is the same for both groups and for every day, being position 1 always the median.
+
+```{r}
+aux1 %>% 
+  ggplot(aes(x = date, y = med_result)) + 
+  geom_col(color='orange') +
+  facet_grid(~group) +
+  labs(x = "Day",
+       y = "Median First Click",
+       title = "Median of First Click by Day and Group") +
+  theme_economist() +
+  ylim(0, 5)
+```
+
+Finally, it is interesting to see which are the outliers that are driving the mean up, and there seems to be 3 searches where the position clicked was around 4,000, of course, driving up the mean.
+
+What really matters is that almost all first clicks are for position 1, so the conclusion is that the median is actually accurate and the first position seems to be the one that people try first.
+
+```{r}
+sessions_2 %>% 
+  filter(result_position > 0) %>% 
+  ggplot(aes(x = result_position)) +
+  geom_histogram(binwidth = 150, color='blue') +
+  scale_y_log10() +
+  labs(title = "Histogram of First Click",
+       x = "First Click",
+       y = "Count")+
+  theme_economist()
+```
+
+### Question 3
+
+##### **What is the daily overall zero results rate? How does it vary between the groups?**
+
+We can define the zero results as those times were the action was 'searchResultPage' and the number of results was equal to 0.
+
+Based on that we defined two categories, zero_results where n_results = 0 and not_zero_results where n_results > 0. 
+
+This is done only for searches where the users are shown a SERP.
+
+After that, we can calculate the Zero Results Rate as a percentage, by showing the proportion of zero results out of the total results.
+
+As shown in the table below, **the zero results rate % is stable around 18 % for both groups a and b, and it is also stable for every day.**
+```{r}
+zrrs_df = events %>% 
+  filter(searches==1) %>% 
+  mutate(n_results_typegroup = ifelse(n_results > 0, ">0", "==0")) %>% 
+  group_by(date, group) %>% 
+  summarise(zero_results = sum(n_results_typegroup == "==0"),
+            not_zero_results = sum(n_results_typegroup == ">0"),
+            sum_results = zero_results + not_zero_results,
+            zrr = zero_results/sum_results * 100) 
+
+zrrs_df %>% 
+    head() %>% 
+  kbl() %>% 
+  kable_paper("striped", full_width = F, position = "left", font_size = 13)
+```
+
+The zero results rate % is shown below and even though and some point they differ a little, they start and finish at the same rate and there is no reason to think that there is a difference between the two groups.
+
+```{r}
+ zrrs_df %>% 
+    ggplot(aes(x = date, y = zrr, color=group)) +
+    geom_point() +
+    geom_line() +
+    labs(title='Zero Results Rate %', x = "Day",
+         y = "zrr %",
+         color="Group") +
+    theme_economist() + scale_color_economist() +
+    theme(legend.position = "right")
+  
+```
+
+Note that even though the not zero results dropped after March 3th for group a, the zero results also dropped, mainting the proportion as a %.
+
+```{r}
+
+  zrrs_df %>% 
+    ggplot(aes(x = date, y = zero_results, color=group)) +
+    geom_point() +
+    geom_line() +
+    labs(title='Zero results per day', x = "Day",
+         y = "Zero results",
+         color="Group") +
+    theme_economist() + scale_color_economist() +
+    theme(legend.position = "right")+
+    ylim(0,15000)
+```
+
+
+```{r}
+  zrrs_df %>% 
+    ggplot(aes(x = date, y = not_zero_results, color=group)) +
+    geom_point() +
+    geom_line() +
+    labs(title='Not zero results per day', x = "Day",
+         y = "Not zero results",
+         color="Group") +
+    theme_economist() + scale_color_economist() +
+    theme(legend.position = "right")+
+    ylim(0,15000)
+
+```
+
+
+### Question 4
+
+##### **Let *session length* be approximately the time between the first event and the last event in a session. Choose a variable from the dataset and describe its relationship to session length. Visualize the relationship.**
+
+The first step to answer this question is to identify the session length.
+
+In order to do so, we filter the actions that visit a page and then calculate the session length as the difference between the first action of the session_id and the last action of that same session_id.
+
+Note that there is also need to filter the session_length > 0 in order to take out of the analysis those that only did a 'VisitPage' action, where no relationship with the session length can be established.
+
+```{r}
+sessions_1 <- events %>%
+  group_by(session_id) %>% 
+  summarize(n_clicks = sum(clicks==1),
+            session_length = as.numeric(max(time)-min(time))) %>% 
+  filter(session_length > 0)
+
+sessions_1 %>% 
+filter(session_id=='00064fe774048046') %>% 
+  kbl() %>% 
+  kable_paper("striped", full_width = F, position = "left", font_size = 13)
+
+events %>% 
+  filter(session_id =='00064fe774048046') %>% 
+  kbl() %>% 
+  kable_paper("striped", full_width = F, position = "left", font_size = 11)
+
+```
+
+With the last two tables, we can double check for an specific session_id that the session_length is being calculated correctly, as 43 seconds corresponds to the difference between the last and the first action of that id.
+
+Now that everything is correct, the next step is to run some correlation test to identify if there is truly a relation between these two, for that we will use Pearson, Spearman and Kendall methods.
+
+* The Pearson product moment correlation assesses the degree of linear relationship between two quantitative variables.
+* Spearman’s rank-order correlation coefficient assesses the degree of relationship between two rank-ordered variables.
+* Kendall’s tau is nonparametric measure of rank correlation.
+
+```{r}
+cor.test(sessions_1$n_clicks, sessions_1$session_length, method = "pearson")
+cor.test(sessions_1$n_clicks, sessions_1$session_length, method = "spearman")
+cor.test(sessions_1$n_clicks, sessions_1$session_length, method = "kendall")
+
+```
+
+Even though the three tests done show no correlation, because all three correlation factors are almost 0, it is a good strategy to plot the results to see if there is some outlier biasing the data or some specific insight.
+
+As the results are plotted, it is clear that there is no correlation between the session length and the number of clicks one user does.
+
+Even when adding a regression line to best fit the data, it is an horizontal one, showing the no correlation between the two variables.
+
+```{r}
+sessions_1 %>% 
+  ggplot(aes(x = session_length, y = n_clicks)) +
+  geom_point(alpha=0.5) +
+  scale_x_log10() +
+  scale_y_log10() +
+  geom_smooth(method=lm)+
+  labs(x = "Session Length",
+       y = "Number of Clicks",
+       title="Number of Clicks vs Session Length")+
+  theme_economist() + scale_color_economist()+
+  theme(legend.position = "right")
+
+```
+
